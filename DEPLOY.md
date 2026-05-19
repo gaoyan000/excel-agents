@@ -68,7 +68,7 @@ It prints a `--check-skill <name>` command; run that after the restart in
 
 ---
 
-## 2. Backend custom domain (api.yourdomain.com)
+## 2. Backend custom domain (api.excel-agents.com)
 
 In Cloudflare → your domain → **DNS** → add:
 
@@ -79,9 +79,9 @@ In Cloudflare → your domain → **DNS** → add:
 Grey-cloud (DNS only) so **Fly** terminates TLS. Then issue the cert:
 
 ```bash
-fly certs add api.yourdomain.com
-fly certs show api.yourdomain.com     # wait until "Issued"
-curl https://api.yourdomain.com/health
+fly certs add api.excel-agents.com
+fly certs show api.excel-agents.com     # wait until "Issued"
+curl https://api.excel-agents.com/health
 ```
 
 ---
@@ -98,15 +98,17 @@ cd web
 npx wrangler pages project create spreadsheet-agent --production-branch=main
 
 # Build with the API URL inlined (NEXT_PUBLIC_* is baked at build time).
-NEXT_PUBLIC_API_BASE=https://api.yourdomain.com npm run build
+NEXT_PUBLIC_API_BASE=https://api.excel-agents.com npm run build
 
 # Deploy. --branch=main is REQUIRED or it goes to a throwaway preview URL.
 npx wrangler pages deploy out --project-name=spreadsheet-agent --branch=main
 ```
 
 Add the frontend custom domain: Cloudflare → Workers & Pages →
-`spreadsheet-agent` (Pages) → **Custom domains** → add e.g.
-`app.yourdomain.com` (or the apex). Cloudflare creates the DNS + cert.
+`spreadsheet-agent` (Pages) → **Custom domains** → add the apex
+`excel-agents.com` (or a subdomain like `app.excel-agents.com` if you
+prefer). Cloudflare creates the DNS records + cert automatically; apex
+works because Cloudflare flattens the CNAME on the authoritative side.
 
 ---
 
@@ -115,8 +117,8 @@ Add the frontend custom domain: Cloudflare → Workers & Pages →
 The backend must allow the final frontend origin. Update and redeploy:
 
 ```bash
-fly secrets set CORS_ORIGINS=https://app.yourdomain.com -a spreadsheet-agent-api
-# (multiple allowed, comma-separated: "https://app.yourdomain.com,https://spreadsheet-agent.pages.dev")
+fly secrets set CORS_ORIGINS=https://excel-agents.com -a spreadsheet-agent-api
+# (multiple allowed, comma-separated: "https://excel-agents.com,https://spreadsheet-agent.pages.dev")
 cd api && fly deploy
 ```
 
@@ -124,14 +126,14 @@ Prove durability with the smoke script's two-phase mode. The first run
 saves a timestamped skill and prints the exact re-check command:
 
 ```bash
-cd api && python -m tests.prod_smoke https://api.yourdomain.com
+cd api && python -m tests.prod_smoke https://api.excel-agents.com
 fly apps restart spreadsheet-agent-api -a spreadsheet-agent-api
 # paste the printed command, e.g.:
-python -m tests.prod_smoke https://api.yourdomain.com --check-skill prod-smoke-1747...
+python -m tests.prod_smoke https://api.excel-agents.com --check-skill prod-smoke-1747...
 # [PASS] skill present on live backend  -> the volume persisted it
 ```
 
-(Or do it by hand: open `https://app.yourdomain.com`, switch the UI to
+(Or do it by hand: open `https://excel-agents.com`, switch the UI to
 中文, upload a Chinese CSV → confirm mapping → save a skill, restart, and
 confirm the skill is still listed.)
 
@@ -148,7 +150,7 @@ confirm the skill is still listed.)
   GitHub, connect it in the Pages dashboard, root dir `web`, build
   `npm install && npm run build`, deploy
   `npx wrangler pages deploy out --project-name=spreadsheet-agent --branch=main`,
-  env `NEXT_PUBLIC_API_BASE=https://api.yourdomain.com`.
+  env `NEXT_PUBLIC_API_BASE=https://api.excel-agents.com`.
 
 ## Cost (first client, scale-to-zero)
 
