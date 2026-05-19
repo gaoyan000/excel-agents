@@ -28,8 +28,8 @@ export const STRINGS = {
   drift: { zh: "结构漂移", en: "Schema drift" },
   busy: { zh: "处理中…", en: "Working…" },
   llmOff: {
-    zh: "未配置 ANTHROPIC_API_KEY：映射走双语启发式，查询返回样例。",
-    en: "No ANTHROPIC_API_KEY: heuristic mapping; query returns a sample.",
+    zh: "未配置 OPENAI_API_KEY：映射走双语启发式，查询返回样例。",
+    en: "No OPENAI_API_KEY: heuristic mapping; query returns a sample.",
   },
 };
 

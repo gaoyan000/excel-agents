@@ -45,10 +45,10 @@ cd api && fly launch --no-deploy --copy-config \
 # mount "ssa_data" -> /data). 3GB is plenty for a first client.
 fly volumes create ssa_data -a spreadsheet-agent-api --region sin --size 3
 
-# Secrets (never put these in fly.toml). ANTHROPIC is optional — without it
+# Secrets (never put these in fly.toml). OPENAI is optional — without it
 # mapping uses the bilingual heuristic and NL-query returns a sample.
-fly secrets set ANTHROPIC_API_KEY=sk-ant-... -a spreadsheet-agent-api   # optional
-# fly secrets set ANTHROPIC_MODEL=claude-sonnet-4-6 -a spreadsheet-agent-api
+fly secrets set OPENAI_API_KEY=sk-... -a spreadsheet-agent-api   # optional
+# fly secrets set OPENAI_MODEL=gpt-4o-mini -a spreadsheet-agent-api
 
 cd api && fly deploy
 

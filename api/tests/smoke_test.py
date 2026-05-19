@@ -16,7 +16,7 @@ _tmp = tempfile.mkdtemp(prefix="ssagent_smoke_")
 import os
 
 os.environ["STORAGE_DIR"] = _tmp
-os.environ.setdefault("ANTHROPIC_API_KEY", "")  # force offline path
+os.environ.setdefault("OPENAI_API_KEY", "")  # force offline path
 
 from fastapi.testclient import TestClient  # noqa: E402
 

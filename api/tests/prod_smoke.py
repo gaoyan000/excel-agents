@@ -95,7 +95,7 @@ def run(base_url: str, check_skill: str | None) -> int:
         check("canonical columns present", "customer_name" in pv["columns"])
         check("rows from both files", len(pv["rows"]) == 10)
 
-        print("query (fallback OK if no ANTHROPIC_API_KEY)")
+        print("query (fallback OK if no OPENAI_API_KEY)")
         q = client.post(
             "/api/query",
             json={"source_ids": ids, "question": "按客户统计总收入"},

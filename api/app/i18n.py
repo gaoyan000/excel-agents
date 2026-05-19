@@ -33,9 +33,9 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "zh": "结构漂移无法映射：缺少必需字段。",
     },
     "query_need_key": {
-        "en": "Free-form natural-language query needs ANTHROPIC_API_KEY. "
+        "en": "Free-form natural-language query needs OPENAI_API_KEY. "
         "Showing a sample of the table instead.",
-        "zh": "自由文本自然语言查询需要 ANTHROPIC_API_KEY，"
+        "zh": "自由文本自然语言查询需要 OPENAI_API_KEY，"
         "现仅展示数据表样例。",
     },
     "sql_rejected": {

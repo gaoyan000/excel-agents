@@ -25,7 +25,7 @@ web/   Next.js + Tailwind, zh/en toggle (read-only preview + mapping table)
 ```bash
 cd api
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env          # optional: add ANTHROPIC_API_KEY for better mapping/NL-SQL
+cp .env.example .env          # optional: add OPENAI_API_KEY for better mapping/NL-SQL
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 

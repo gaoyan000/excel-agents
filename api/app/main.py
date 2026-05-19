@@ -27,7 +27,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "llm_enabled": SETTINGS.llm_enabled,
-        "model": SETTINGS.anthropic_model if SETTINGS.llm_enabled else None,
+        "model": SETTINGS.openai_model if SETTINGS.llm_enabled else None,
     }
 
 

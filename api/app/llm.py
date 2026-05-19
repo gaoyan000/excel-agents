@@ -1,12 +1,18 @@
-"""Claude integration with a bilingual offline fallback.
+"""OpenAI integration with a bilingual offline fallback.
 
 Two LLM jobs only (DESIGN.md §1): (1) propose column→canonical mapping with
 confidence, (2) NL→SQL. Both are wrapped by the §5 cache at the router
-layer. Without ANTHROPIC_API_KEY the app still works via a deterministic
+layer. Without OPENAI_API_KEY the app still works via a deterministic
 bilingual heuristic — the China-first client's Chinese headers map offline.
 
-Claude calls use tool-use for structured output and prompt-cache the static
-instruction block (claude-api skill: cache repeated system context).
+OpenAI calls use strict structured outputs (response_format=json_schema,
+strict=True) for guaranteed schema compliance. OpenAI auto-caches static
+prompt prefixes ≥1024 tokens server-side, so the long system prompt with
+CANON_META is amortized across calls — no explicit cache flag needed.
+
+Strict-mode quirk: dict-of-unknown-keys (`additionalProperties: <subschema>`)
+is not allowed. The mapping is therefore emitted as an array of records
+and converted back to the dict shape the routers expect.
 """
 from __future__ import annotations
 
@@ -17,7 +23,7 @@ from .fingerprint import normalize_name
 
 # --- bilingual canonical synonym dictionary (offline brain) ----------------
 # normalized source name (en + zh) -> canonical field. Drives the heuristic
-# fallback and also seeds the prompt so Claude stays consistent with it.
+# fallback and also seeds the prompt so the LLM stays consistent with it.
 SYNONYMS: dict[str, str] = {
     # customer_name
     "customer": "customer_name", "customer_name": "customer_name",
@@ -67,9 +73,11 @@ CANON_META: dict[str, dict] = {
 
 
 def _client():
-    import anthropic
+    # Deferred import: matches the storage.py pattern, keeps module import
+    # cheap even if the dep is missing in some downstream environment.
+    from openai import OpenAI
 
-    return anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
+    return OpenAI(api_key=SETTINGS.openai_api_key)
 
 
 # --- mapping ---------------------------------------------------------------
@@ -100,42 +108,45 @@ def _heuristic_mapping(files: list[dict]) -> dict:
     return {"canonical_schema": fields, "mapping": mapping}
 
 
-def _mapping_tool() -> dict:
-    return {
-        "name": "emit_mapping",
-        "description": "Return the canonical schema and per-source-column mapping.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "canonical_schema": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "type": {"type": "string"},
-                            "desc_en": {"type": "string"},
-                            "desc_zh": {"type": "string"},
-                        },
-                        "required": ["name", "type", "desc_en", "desc_zh"],
-                    },
-                },
-                "mapping": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "object",
-                        "properties": {
-                            "to": {"type": ["string", "null"]},
-                            "confidence": {"type": "number"},
-                            "rationale": {"type": "string"},
-                        },
-                        "required": ["to", "confidence", "rationale"],
-                    },
+# Strict JSON schema: every object lists every property in `required` and
+# sets additionalProperties=false (OpenAI strict mode requirement).
+_MAPPING_SCHEMA: dict = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["canonical_schema", "mappings"],
+    "properties": {
+        "canonical_schema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "type", "desc_en", "desc_zh"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "type": {"type": "string"},
+                    "desc_en": {"type": "string"},
+                    "desc_zh": {"type": "string"},
                 },
             },
-            "required": ["canonical_schema", "mapping"],
         },
-    }
+        # Array-of-records: strict mode forbids open-ended object keys, so
+        # we ship `source` as a field and rebuild the dict in Python.
+        "mappings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["source", "to", "confidence", "rationale"],
+                "properties": {
+                    "source": {"type": "string"},
+                    "to": {"type": ["string", "null"]},
+                    "confidence": {"type": "number"},
+                    "rationale": {"type": "string"},
+                },
+            },
+        },
+    },
+}
 
 
 _MAPPING_SYS = (
@@ -143,10 +154,11 @@ _MAPPING_SYS = (
     "canonical schema for a data-cleaning tool. Prefer reusing these "
     "canonical fields when applicable: "
     + json.dumps(CANON_META, ensure_ascii=False)
-    + ". Every canonical field MUST have both desc_en and desc_zh. Map each "
-    "source column to a canonical field or null if unclear; give a 0..1 "
+    + ". Every canonical field MUST have both desc_en and desc_zh. For each "
+    "source column emit one record in `mappings` with the exact source name "
+    "and either a canonical `to` or null when unclear; give a 0..1 "
     "confidence. Be conservative: low confidence when ambiguous so a human "
-    "confirms. Call emit_mapping exactly once."
+    "confirms."
 )
 
 
@@ -156,24 +168,41 @@ def propose_mapping(files: list[dict]) -> dict:
         return _heuristic_mapping(files)
     try:
         client = _client()
-        resp = client.messages.create(
-            model=SETTINGS.anthropic_model,
+        resp = client.chat.completions.create(
+            model=SETTINGS.openai_model,
             max_tokens=2000,
-            system=[{
-                "type": "text",
-                "text": _MAPPING_SYS,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            tools=[_mapping_tool()],
-            tool_choice={"type": "tool", "name": "emit_mapping"},
-            messages=[{
-                "role": "user",
-                "content": "Files:\n" + json.dumps(files, ensure_ascii=False),
-            }],
+            messages=[
+                {"role": "system", "content": _MAPPING_SYS},
+                {
+                    "role": "user",
+                    "content": "Files:\n"
+                    + json.dumps(files, ensure_ascii=False),
+                },
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "Mapping",
+                    "strict": True,
+                    "schema": _MAPPING_SCHEMA,
+                },
+            },
         )
-        for block in resp.content:
-            if block.type == "tool_use":
-                return block.input
+        data = json.loads(resp.choices[0].message.content or "{}")
+        # Rebuild the {source_col: {to, confidence, rationale}} dict the
+        # routers expect from the strict-mode array form.
+        mapping: dict[str, dict] = {
+            rec["source"]: {
+                "to": rec["to"],
+                "confidence": rec["confidence"],
+                "rationale": rec["rationale"],
+            }
+            for rec in data.get("mappings", [])
+        }
+        return {
+            "canonical_schema": data.get("canonical_schema", []),
+            "mapping": mapping,
+        }
     except Exception:
         pass
     return _heuristic_mapping(files)  # never hard-fail the pipeline
@@ -181,16 +210,12 @@ def propose_mapping(files: list[dict]) -> dict:
 
 # --- NL -> SQL -------------------------------------------------------------
 
-def _nl_sql_tool() -> dict:
-    return {
-        "name": "emit_sql",
-        "description": "Return a single read-only DuckDB SELECT over table t.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"sql": {"type": "string"}},
-            "required": ["sql"],
-        },
-    }
+_SQL_SCHEMA: dict = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["sql"],
+    "properties": {"sql": {"type": "string"}},
+}
 
 
 def nl_to_sql(question: str, canonical_fields: list[dict]) -> str | None:
@@ -203,24 +228,29 @@ def nl_to_sql(question: str, canonical_fields: list[dict]) -> str | None:
         "Translate the user's question (Chinese or English) into ONE "
         "read-only DuckDB SELECT over a table named t with columns: "
         + schema_desc
-        + ". No DDL/DML, no semicolons, no comments. Call emit_sql once."
+        + ". No DDL/DML, no semicolons, no comments. Return only the SQL "
+        "string in the `sql` field."
     )
     try:
         client = _client()
-        resp = client.messages.create(
-            model=SETTINGS.anthropic_model,
+        resp = client.chat.completions.create(
+            model=SETTINGS.openai_model,
             max_tokens=600,
-            system=[{
-                "type": "text", "text": sys,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            tools=[_nl_sql_tool()],
-            tool_choice={"type": "tool", "name": "emit_sql"},
-            messages=[{"role": "user", "content": question}],
+            messages=[
+                {"role": "system", "content": sys},
+                {"role": "user", "content": question},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "Sql",
+                    "strict": True,
+                    "schema": _SQL_SCHEMA,
+                },
+            },
         )
-        for block in resp.content:
-            if block.type == "tool_use":
-                return block.input.get("sql")
+        data = json.loads(resp.choices[0].message.content or "{}")
+        sql = data.get("sql")
+        return sql if isinstance(sql, str) and sql.strip() else None
     except Exception:
         return None
-    return None

@@ -12,8 +12,8 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Settings:
-    anthropic_api_key: str
-    anthropic_model: str
+    openai_api_key: str
+    openai_model: str
     storage_dir: Path
     metadata_db: Path
     cors_origins: list[str]
@@ -26,7 +26,7 @@ class Settings:
 
     @property
     def llm_enabled(self) -> bool:
-        return bool(self.anthropic_api_key)
+        return bool(self.openai_api_key)
 
     @property
     def r2_enabled(self) -> bool:
@@ -46,8 +46,8 @@ def load_settings() -> Settings:
         if o.strip()
     ]
     return Settings(
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
-        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip(),
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip(),
         storage_dir=storage_dir,
         metadata_db=metadata_db,
         cors_origins=origins,
