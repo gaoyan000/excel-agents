@@ -18,8 +18,7 @@ curl -L https://fly.io/install.sh | sh      # or: brew install flyctl
 fly auth login                               # opens browser
 
 # Cloudflare
-npm i -g wrangler
-wrangler login                               # opens browser
+npx wrangler login                             # opens browser
 ```
 
 In Claude Code, run interactive logins with the `!` prefix, e.g.
@@ -40,11 +39,11 @@ In Claude Code, run interactive logins with the `!` prefix, e.g.
 ```bash
 # Create the app WITHOUT deploying (so we can add a volume + secrets first).
 cd api && fly launch --no-deploy --copy-config \
-  --name spreadsheet-agent-api --region hkg --yes
+  --name spreadsheet-agent-api --region sin --yes
 
 # Persistent volume the metadata DB + raw files live on (matches fly.toml
 # mount "ssa_data" -> /data). 3GB is plenty for a first client.
-fly volumes create ssa_data -a spreadsheet-agent-api --region hkg --size 3
+fly volumes create ssa_data -a spreadsheet-agent-api --region sin --size 3
 
 # Secrets (never put these in fly.toml). ANTHROPIC is optional — without it
 # mapping uses the bilingual heuristic and NL-query returns a sample.

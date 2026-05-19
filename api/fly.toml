@@ -1,37 +1,30 @@
-# Fly.io app config for the FastAPI + native DuckDB backend.
-# Durable: SQLite metadata + raw files live on a persistent volume at /data,
-# so saved skills/mappings (the moat) survive restarts and cold starts.
-app = "spreadsheet-agent-api"
-# China-first client -> Hong Kong is the lowest-latency region. Change if
-# your client is elsewhere (nrt=Tokyo, sin=Singapore, sjc=US-West).
-primary_region = "hkg"
+# fly.toml app configuration file generated for spreadsheet-agent-api on 2026-05-19T15:55:48-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'spreadsheet-agent-api'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  # Point storage at the mounted volume; METADATA_DB defaults to
-  # <STORAGE_DIR>/metadata.db, so this one var makes everything durable.
-  STORAGE_DIR = "/data/storage"
-  # Raw files default to the same volume (STORAGE_BACKEND=local). To move
-  # them to Cloudflare R2 later, set STORAGE_BACKEND=r2 + R2_* secrets —
-  # no code change (api/app/storage.py).
-  STORAGE_BACKEND = "local"
-  # Replace with your final frontend origin(s), comma-separated, after the
-  # Pages domain is known. Both the *.pages.dev and custom domain are fine.
-  CORS_ORIGINS = "https://spreadsheet-agent.pages.dev"
+  CORS_ORIGINS = 'https://spreadsheet-agent.pages.dev'
+  STORAGE_BACKEND = 'local'
+  STORAGE_DIR = '/data/storage'
+
+[[mounts]]
+  source = 'ssa_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0   # scale-to-zero; volume persists across stops
-
-[[mounts]]
-  source = "ssa_data"
-  destination = "/data"
+  min_machines_running = 0
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "1024mb"          # DuckDB headroom for typical spreadsheets
+  size = 'shared-cpu-1x'
+  memory = '1024mb'
