@@ -46,11 +46,37 @@ _DATE_SEP = re.compile(
 _DATE_ZH = re.compile(
     r"^\s*(\d{4})年(\d{1,2})月(\d{1,2})日\s*$"
 )
+# M.D / M-D / M/D — used by monthly logistics sheets where the year is
+# implicit in the filename (e.g. "2.09" in 远航货运2023年2月). Only applied
+# when we have an external year hint and the column looks like a date
+# column — both gates prevent "5.60" in a 运费 column from being read as
+# May 60th nonsense.
+_DATE_NO_YEAR = re.compile(r"^\s*(\d{1,2})[./-](\d{1,2})\s*$")
+_DATE_COL_HINT = re.compile(r"date|日期|time|时间", re.IGNORECASE)
 
 
-def _maybe_iso_date(s: str) -> str | None:
-    """Detect a date-shaped text and return ISO (YYYY-MM-DDTHH:MM:SS) or
-    None when the string isn't a date."""
+def _looks_like_date_column(name: str | None) -> bool:
+    return bool(name and _DATE_COL_HINT.search(name))
+
+
+def _extract_year_hint(filename: str | None) -> int | None:
+    """Pull YYYY out of a YYYY年 token in the filename, common in monthly
+    logistics sheets ("远航货运2023年2月..."). Returns None if absent."""
+    if not filename:
+        return None
+    m = re.search(r"(\d{4})年", filename)
+    return int(m.group(1)) if m else None
+
+
+def _maybe_iso_date(s: str, year_hint: int | None = None) -> str | None:
+    """Detect a date-shaped text and return ISO. None when not a date.
+
+    Without year_hint we only match full YYYY-bearing shapes
+    (2023-03-15 / 2023/3/15 / 2023.03.15 with optional HH:MM:SS, and
+    2023年3月15日). When year_hint is provided we also accept the
+    no-year M[./-]D form and use year_hint as the year — the caller is
+    expected to gate this on the cell being in a date-like column.
+    """
     m = _DATE_SEP.match(s)
     if m:
         try:
@@ -71,6 +97,15 @@ def _maybe_iso_date(s: str) -> str | None:
             ).isoformat()
         except ValueError:
             return None
+    if year_hint is not None:
+        m = _DATE_NO_YEAR.match(s)
+        if m:
+            try:
+                mo, d = int(m.group(1)), int(m.group(2))
+                if 1 <= mo <= 12 and 1 <= d <= 31:
+                    return datetime(year_hint, mo, d).isoformat()
+            except ValueError:
+                return None
     return None
 
 
@@ -289,6 +324,17 @@ def excel_to_csv(filename: str, raw: bytes) -> tuple[str, bytes] | None:
     header = rows[header_idx]
     width = len(header)
 
+    # Year hint from the filename (e.g. "远航货运2023年2月...xls" -> 2023)
+    # plus the indices of columns whose header looks like a date column.
+    # M[./-]D cells in *those* columns get promoted to ISO using the hint.
+    # Scoping to date-like columns keeps "5.60" in a 运费 column safe.
+    year_hint = _extract_year_hint(filename)
+    date_col_idxs = (
+        [i for i, h in enumerate(header) if _looks_like_date_column(h)]
+        if year_hint is not None
+        else []
+    )
+
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(header)
@@ -304,5 +350,13 @@ def excel_to_csv(filename: str, raw: bytes) -> tuple[str, bytes] | None:
         # Skip completely blank data rows (common in xlsx between sections).
         if not any(c.strip() for c in row):
             continue
+        if date_col_idxs:
+            row = list(row)
+            for i in date_col_idxs:
+                cell = row[i]
+                if isinstance(cell, str) and cell.strip():
+                    iso = _maybe_iso_date(cell, year_hint)
+                    if iso is not None:
+                        row[i] = iso
         writer.writerow(row)
     return filename + ".csv", buf.getvalue().encode("utf-8")
