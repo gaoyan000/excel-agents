@@ -13,6 +13,12 @@ export type Mapping = Record<string, MapEntry>;
 export type CanonField = { name: string; type: string; desc_en: string; desc_zh: string };
 export type Table = { columns: string[]; rows: unknown[][] };
 
+export async function health(): Promise<{
+  status: string; llm_enabled: boolean; model: string | null;
+}> {
+  return j(await fetch(`${BASE}/health`));
+}
+
 export async function ingest(files: FileList): Promise<{
   sources: Source[]; known_fingerprint: boolean; message: Bi;
 }> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as api from "@/lib/api";
 import { Lang, t } from "@/lib/i18n";
 
@@ -17,6 +17,17 @@ export default function Page() {
   const [qres, setQres] = useState<(api.Table & { sql: string | null }) | null>(null);
   const [skillName, setSkillName] = useState("");
   const [savedSkill, setSavedSkill] = useState<string>("");
+  // Tri-state: undefined while /health hasn't returned, then true|false.
+  // Starts undefined so we don't flash the "key missing" banner before
+  // the check completes.
+  const [llmEnabled, setLlmEnabled] = useState<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    api.health().then((h) => setLlmEnabled(h.llm_enabled)).catch(() => {
+      // Network/CORS failure -> treat as offline so the banner is honest.
+      setLlmEnabled(false);
+    });
+  }, []);
 
   const ids = sources.map((s) => s.id);
   // Bilingual label for a canonical field — Chinese desc in zh mode,
@@ -247,9 +258,11 @@ export default function Page() {
         </section>
       )}
 
-      <footer className="pt-4 text-xs text-slate-400">
-        {t(lang, "llmOff")}
-      </footer>
+      {llmEnabled === false && (
+        <footer className="pt-4 text-xs text-slate-400">
+          {t(lang, "llmOff")}
+        </footer>
+      )}
     </main>
   );
 }
