@@ -294,39 +294,59 @@ _SQL_SCHEMA: dict = {
 def _nl_sql_system(schema_desc: str) -> str:
     """DuckDB-specific guidance shared by initial generation + retry.
 
-    The big pitfall we keep seeing: the model defaults to MySQL/Postgres
-    function names (date_format, parse_date, ...) that don't exist in
-    DuckDB. We anchor it to the right names up front with examples.
+    Three classes of pitfalls have surfaced in production:
+      1. Wrong dialect — model defaults to MySQL/Postgres function names
+         (date_format, parse_date) that don't exist in DuckDB.
+      2. Missed dimensions — Chinese Pinyin typos (安/按) cause the model
+         to drop a grouping phrase. We add a typo-tolerance hint.
+      3. Long vs wide — the model defaults to long format (GROUP BY rows)
+         even when the user clearly wants a pivot (months as columns).
+         We include a PIVOT example so wide-format requests work.
     """
     return (
         "Translate the user's question (Chinese or English) into ONE "
-        "read-only DuckDB SELECT over a table named t.\n\n"
+        "read-only DuckDB query over a table named t.\n\n"
         "STORAGE: every column in t is VARCHAR (text). The `type` field "
         "in the schema is the SEMANTIC type — you MUST cast columns for "
         "any numeric, date, or comparison work. Prefer TRY_CAST so dirty "
         "rows become NULL instead of erroring the whole query.\n\n"
+        "EVERY row also has a `source_file` VARCHAR column (added by the "
+        "cross-file union) carrying the originating filename. Use it as a "
+        "grouping dimension when the user says 按数据来源 / 按文件 / "
+        "by source / by file.\n\n"
+        "TYPO TOLERANCE: Chinese queries may carry Pinyin typos. The most "
+        "common one in this domain is 安 used for 按 (group-by). Read "
+        "'安客户' as '按客户' (group by customer), '安月份' as '按月份' "
+        "(group by month), etc., when the rest of the sentence fits.\n\n"
         "DUCKDB SYNTAX (use these exact function names):\n"
-        "  • Numeric cast: TRY_CAST(\"col\" AS DOUBLE) / DECIMAL / INTEGER / BIGINT\n"
-        "  • Date cast:    TRY_CAST(\"col\" AS DATE) / TIMESTAMP\n"
-        "  • Format date:  strftime(ts, '%Y-%m')          -- NOT date_format()\n"
-        "  • Parse date:   strptime(s, '%Y-%m-%d')         -- NOT parse_date()\n"
-        "  • Truncate:     date_trunc('month', ts)         -- month|year|day|week|quarter\n"
-        "  • Extract:      year(ts), month(ts), day(ts), date_part('year', ts)\n"
-        "  • Concat:       a || b   (or CONCAT(a, b))\n"
-        "  • Date literal: DATE '2023-01-01'\n\n"
-        "EXAMPLES:\n"
-        "  -- total revenue by customer (top N)\n"
+        "  - Numeric cast: TRY_CAST(\"col\" AS DOUBLE) / DECIMAL / INTEGER\n"
+        "  - Date cast:    TRY_CAST(\"col\" AS DATE) / TIMESTAMP\n"
+        "  - Format date:  strftime(ts, '%Y-%m')      NOT date_format()\n"
+        "  - Parse date:   strptime(s, '%Y-%m-%d')    NOT parse_date()\n"
+        "  - Truncate:     date_trunc('month', ts)    month|year|day|week|quarter\n"
+        "  - Extract:      year(ts), month(ts), day(ts), date_part('year', ts)\n"
+        "  - String concat: use the || operator, or CONCAT(a, b)\n"
+        "  - Date literal: DATE '2023-01-01'\n"
+        "  - Pivot:        PIVOT t ON <expr> USING <agg> GROUP BY <rows>\n\n"
+        "EXAMPLES (pick the shape the user actually asks for):\n\n"
+        "  -- 按客户统计总收入 (long: top-N rows)\n"
         "  SELECT \"customer_name\", SUM(TRY_CAST(\"revenue\" AS DOUBLE)) AS total\n"
         "  FROM t GROUP BY \"customer_name\" ORDER BY total DESC LIMIT 20\n\n"
-        "  -- monthly totals (group by year-month)\n"
+        "  -- 按月份统计总收入 (long: one row per month)\n"
         "  SELECT strftime(TRY_CAST(\"order_date\" AS DATE), '%Y-%m') AS month,\n"
         "         SUM(TRY_CAST(\"revenue\" AS DOUBLE)) AS total\n"
-        "  FROM t\n"
-        "  WHERE TRY_CAST(\"order_date\" AS DATE) IS NOT NULL\n"
+        "  FROM t WHERE TRY_CAST(\"order_date\" AS DATE) IS NOT NULL\n"
         "  GROUP BY 1 ORDER BY 1\n\n"
+        "  -- 按数据来源和客户，每月总运费作为单独列 (WIDE / PIVOT)\n"
+        "  --   key phrasing cues: 按...透视, 月份作为列, 列为1月/2月..., as columns\n"
+        "  PIVOT t\n"
+        "    ON CONCAT(month(TRY_CAST(\"日期\" AS DATE)), '月')\n"
+        "    USING SUM(TRY_CAST(\"运费合计\" AS DOUBLE))\n"
+        "    GROUP BY source_file, \"客户\"\n\n"
         "Schema: " + schema_desc + "\n\n"
         "Return ONLY the SQL string in the `sql` field. One read-only "
-        "SELECT, no DDL/DML, no semicolons, no comments."
+        "statement (SELECT, WITH, PIVOT, or UNPIVOT). No DDL/DML, no "
+        "semicolons, no comments."
     )
 
 

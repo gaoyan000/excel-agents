@@ -143,12 +143,18 @@ class SqlRejected(Exception):
 
 
 def validate_select(sql: str) -> str:
-    """Guardrail (DESIGN.md §7): a single read-only SELECT only."""
+    """Guardrail (DESIGN.md §7): a single read-only query only.
+
+    Accepts the DuckDB read-only statement heads — SELECT, WITH (CTE),
+    PIVOT, UNPIVOT, and FROM-first SELECT. The _FORBIDDEN regex still
+    blocks DML/DDL keywords inside the body, so a PIVOT that smuggles
+    an INSERT inside a subquery is still rejected.
+    """
     s = sql.strip().rstrip(";").strip()
     if ";" in s:
         raise SqlRejected("multiple statements")
-    if not re.match(r"^(select|with)\b", s, re.IGNORECASE):
-        raise SqlRejected("not a SELECT")
+    if not re.match(r"^(select|with|pivot|unpivot|from)\b", s, re.IGNORECASE):
+        raise SqlRejected("not a SELECT/WITH/PIVOT/UNPIVOT/FROM")
     if _FORBIDDEN.search(s):
         raise SqlRejected("contains a write/DDL keyword")
     return s
