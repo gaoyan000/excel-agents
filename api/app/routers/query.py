@@ -57,12 +57,13 @@ def query(req: QueryReq) -> dict:
     unified = duck.build_unified_sql(srcs, _flat_mapping(srcs))
     canon = db.latest_canonical() or {"version": 0, "fields": []}
 
-    key = cache.cache_key("nlsql", {"q": req.question, "v": canon["version"]})
+    # Cache namespace bumped to v2: the v1 namespace held SQL generated
+    # before the DuckDB-specific prompt fix (date_format etc.), so those
+    # cached strings would 500 forever otherwise.
+    key = cache.cache_key("nlsql_v2", {"q": req.question, "v": canon["version"]})
     sql = cache.cache_get(key)
     if sql is None:
         sql = llm.nl_to_sql(req.question, canon["fields"])
-        if sql:
-            cache.cache_put(key, sql)
 
     if not sql:  # no API key -> honest fallback to a sample
         res = duck.preview(unified, 50)
@@ -70,8 +71,25 @@ def query(req: QueryReq) -> dict:
             "columns": res["columns"], "rows": res["rows"],
             "sql": None, "message": msg("query_need_key"),
         }
+
+    # First attempt; on a DuckDB execution error ask the LLM to self-repair
+    # once. We only cache SQL that actually executed cleanly, so a bad first
+    # attempt never poisons the cache.
     try:
         res = duck.run_query(unified, sql)
     except duck.SqlRejected:
         raise HTTPException(400, msg("sql_rejected")["en"])
+    except Exception as e:  # noqa: BLE001 - DuckDB raises a family of types
+        fixed = llm.fix_sql(req.question, sql, str(e), canon["fields"])
+        if not fixed:
+            raise HTTPException(500, f"SQL execution failed: {e}")
+        try:
+            res = duck.run_query(unified, fixed)
+            sql = fixed
+        except duck.SqlRejected:
+            raise HTTPException(400, msg("sql_rejected")["en"])
+        except Exception as e2:  # noqa: BLE001
+            raise HTTPException(500, f"SQL retry also failed: {e2}")
+
+    cache.cache_put(key, sql)
     return {"columns": res["columns"], "rows": res["rows"], "sql": res["sql"]}

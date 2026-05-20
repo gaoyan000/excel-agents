@@ -291,41 +291,60 @@ _SQL_SCHEMA: dict = {
 }
 
 
-def nl_to_sql(question: str, canonical_fields: list[dict]) -> str | None:
-    """Return SQL over the unified table `t`, or None if no key (caller
-    falls back to a sample). Accepts Chinese or English questions."""
-    if not SETTINGS.llm_enabled:
-        return None
-    schema_desc = json.dumps(canonical_fields, ensure_ascii=False)
-    sys = (
+def _nl_sql_system(schema_desc: str) -> str:
+    """DuckDB-specific guidance shared by initial generation + retry.
+
+    The big pitfall we keep seeing: the model defaults to MySQL/Postgres
+    function names (date_format, parse_date, ...) that don't exist in
+    DuckDB. We anchor it to the right names up front with examples.
+    """
+    return (
         "Translate the user's question (Chinese or English) into ONE "
-        "read-only DuckDB SELECT over a table named t.\n"
+        "read-only DuckDB SELECT over a table named t.\n\n"
         "STORAGE: every column in t is VARCHAR (text). The `type` field "
-        "below is the SEMANTIC type — you MUST cast columns for any "
-        "numeric, date, or comparison work. Prefer TRY_CAST so dirty "
-        "rows go to NULL instead of erroring the whole query, e.g.\n"
-        "  SUM(TRY_CAST(\"revenue\" AS DOUBLE))\n"
-        "  WHERE TRY_CAST(\"order_date\" AS DATE) >= DATE '2023-01-01'\n"
-        "  ORDER BY TRY_CAST(\"件数\" AS INTEGER) DESC\n"
-        "Schema: " + schema_desc + "\n"
-        "No DDL/DML, no semicolons, no comments. Return only the SQL "
-        "string in the `sql` field."
+        "in the schema is the SEMANTIC type — you MUST cast columns for "
+        "any numeric, date, or comparison work. Prefer TRY_CAST so dirty "
+        "rows become NULL instead of erroring the whole query.\n\n"
+        "DUCKDB SYNTAX (use these exact function names):\n"
+        "  • Numeric cast: TRY_CAST(\"col\" AS DOUBLE) / DECIMAL / INTEGER / BIGINT\n"
+        "  • Date cast:    TRY_CAST(\"col\" AS DATE) / TIMESTAMP\n"
+        "  • Format date:  strftime(ts, '%Y-%m')          -- NOT date_format()\n"
+        "  • Parse date:   strptime(s, '%Y-%m-%d')         -- NOT parse_date()\n"
+        "  • Truncate:     date_trunc('month', ts)         -- month|year|day|week|quarter\n"
+        "  • Extract:      year(ts), month(ts), day(ts), date_part('year', ts)\n"
+        "  • Concat:       a || b   (or CONCAT(a, b))\n"
+        "  • Date literal: DATE '2023-01-01'\n\n"
+        "EXAMPLES:\n"
+        "  -- total revenue by customer (top N)\n"
+        "  SELECT \"customer_name\", SUM(TRY_CAST(\"revenue\" AS DOUBLE)) AS total\n"
+        "  FROM t GROUP BY \"customer_name\" ORDER BY total DESC LIMIT 20\n\n"
+        "  -- monthly totals (group by year-month)\n"
+        "  SELECT strftime(TRY_CAST(\"order_date\" AS DATE), '%Y-%m') AS month,\n"
+        "         SUM(TRY_CAST(\"revenue\" AS DOUBLE)) AS total\n"
+        "  FROM t\n"
+        "  WHERE TRY_CAST(\"order_date\" AS DATE) IS NOT NULL\n"
+        "  GROUP BY 1 ORDER BY 1\n\n"
+        "Schema: " + schema_desc + "\n\n"
+        "Return ONLY the SQL string in the `sql` field. One read-only "
+        "SELECT, no DDL/DML, no semicolons, no comments."
     )
+
+
+def _call_sql(system: str, user: str) -> str | None:
+    """Single LLM call to the strict json_schema SQL endpoint."""
     try:
         client = _client()
         resp = client.chat.completions.create(
             model=SETTINGS.openai_model,
             max_tokens=600,
             messages=[
-                {"role": "system", "content": sys},
-                {"role": "user", "content": question},
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
             ],
             response_format={
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "Sql",
-                    "strict": True,
-                    "schema": _SQL_SCHEMA,
+                    "name": "Sql", "strict": True, "schema": _SQL_SCHEMA,
                 },
             },
         )
@@ -334,3 +353,40 @@ def nl_to_sql(question: str, canonical_fields: list[dict]) -> str | None:
         return sql if isinstance(sql, str) and sql.strip() else None
     except Exception:
         return None
+
+
+def nl_to_sql(question: str, canonical_fields: list[dict]) -> str | None:
+    """Return SQL over the unified table `t`, or None if no key (caller
+    falls back to a sample). Accepts Chinese or English questions."""
+    if not SETTINGS.llm_enabled:
+        return None
+    schema_desc = json.dumps(canonical_fields, ensure_ascii=False)
+    return _call_sql(_nl_sql_system(schema_desc), question)
+
+
+def fix_sql(
+    question: str,
+    prev_sql: str,
+    error: str,
+    canonical_fields: list[dict],
+) -> str | None:
+    """Single-shot self-repair: ask the LLM to fix SQL that DuckDB rejected.
+
+    Called from the /api/query route after the first attempt raises. Re-
+    states the schema + the DuckDB error and asks for a corrected SELECT.
+    Same system prompt as nl_to_sql so the LLM stays anchored to DuckDB
+    syntax instead of guessing another dialect.
+    """
+    if not SETTINGS.llm_enabled:
+        return None
+    schema_desc = json.dumps(canonical_fields, ensure_ascii=False)
+    system = _nl_sql_system(schema_desc) + (
+        "\n\nYOU WROTE SQL THAT DUCKDB REJECTED. Fix it using the function "
+        "names above. Do not re-explain — just emit the corrected SQL."
+    )
+    user = (
+        f"Question: {question}\n"
+        f"Previous SQL:\n{prev_sql}\n"
+        f"DuckDB error:\n{error}"
+    )
+    return _call_sql(system, user)
