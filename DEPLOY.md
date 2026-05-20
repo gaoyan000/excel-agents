@@ -79,7 +79,7 @@ In Cloudflare → your domain → **DNS** → add:
 Grey-cloud (DNS only) so **Fly** terminates TLS. Then issue the cert:
 
 ```bash
-fly certs add api.excel-agents.com
+fly certs add api.excel-agents.com -a spreadsheet-agent-api
 fly certs show api.excel-agents.com     # wait until "Issued"
 curl https://api.excel-agents.com/health
 ```
