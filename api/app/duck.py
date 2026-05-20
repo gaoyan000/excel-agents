@@ -24,16 +24,14 @@ def _scan_expr(path: str) -> str:
     """DuckDB table function to read a file by extension.
 
     `path` is the stored locator: a local path, or an s3:// URI when
-    STORAGE_BACKEND=r2. CSV/TSV stream directly from R2 via httpfs; xlsx
-    is materialized to a local cache file first (httpfs streams only
-    CSV/Parquet/JSON, and read_xlsx needs a real file).
+    STORAGE_BACKEND=r2. CSV/TSV stream directly from R2 via httpfs.
+    Excel files (.xls / .xlsx) are converted to CSV in Python at ingest
+    time (see app/excel.py) so DuckDB never sees them directly — that
+    keeps header detection and subtotal-row filtering in one place.
     """
     p = path.lower()
     if p.endswith(".csv") or p.endswith(".tsv") or p.endswith(".txt"):
         return f"read_csv_auto('{path}', sample_size=-1, all_varchar=false)"
-    if p.endswith(".xlsx"):
-        local = storage.local_copy(path)
-        return f"read_xlsx('{local}', all_varchar=true)"
     raise ValueError(f"Unsupported file type: {path}")
 
 
@@ -44,21 +42,10 @@ def base_scan(path: str) -> str:
 
 def _connect() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
-    # Excel extension provides read_xlsx (DuckDB 1.2+). The image pre-installs
-    # it at build time (Dockerfile), so INSTALL is a no-op from cache and LOAD
-    # activates it. We log failures instead of swallowing them: silent failure
-    # here used to cause confusing CatalogExceptions downstream on xlsx upload
-    # ("Table Function with name read_xlsx does not exist"), making the real
-    # cause invisible. CSV/TSV ingest still works without the extension.
-    try:
-        con.execute("INSTALL excel")
-        con.execute("LOAD excel")
-    except Exception as e:  # noqa: BLE001 - surface the cause, don't swallow
-        import sys
-        print(
-            f"WARN duck._connect: failed to load excel extension: {e!r}",
-            file=sys.stderr,
-        )
+    # The Excel extension is no longer needed at the DuckDB layer —
+    # Excel files are converted to CSV in Python at ingest time
+    # (app/excel.py), so DuckDB only ever reads CSV here. CSV/TSV ingest
+    # has no extension dependency.
     if SETTINGS.r2_enabled:
         # R2 is S3-compatible; httpfs lets DuckDB read s3:// CSV directly.
         con.execute("INSTALL httpfs; LOAD httpfs;")
