@@ -95,12 +95,19 @@ def run(base_url: str, check_skill: str | None) -> int:
         check("canonical columns present", "customer_name" in pv["columns"])
         check("rows from both files", len(pv["rows"]) == 10)
 
-        print("query (fallback OK if no OPENAI_API_KEY)")
+        print("query (LLM if OPENAI_API_KEY set, else heuristic fallback)")
         q = client.post(
             "/api/query",
             json={"source_ids": ids, "question": "按客户统计总收入"},
         ).json()
-        check("query returned a message", bool(q.get("message")))
+        # Two healthy shapes: LLM success returns `sql` + rows; offline
+        # fallback returns `sql=None` + a bilingual `message`.
+        if q.get("sql"):
+            check("LLM path: produced SQL + rows",
+                  isinstance(q["sql"], str) and len(q.get("rows", [])) > 0)
+        else:
+            check("fallback path: bilingual message present",
+                  bool(q.get("message")))
 
         skill_name = check_skill or f"prod-smoke-{int(time.time())}"
         print(f"save skill '{skill_name}'")
