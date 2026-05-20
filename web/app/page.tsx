@@ -19,7 +19,10 @@ export default function Page() {
   const [savedSkill, setSavedSkill] = useState<string>("");
 
   const ids = sources.map((s) => s.id);
-  const fieldNames = canon.map((c) => c.name);
+  // Bilingual label for a canonical field — Chinese desc in zh mode,
+  // English desc in en mode, falling back to the canonical name.
+  const fieldLabel = (c: api.CanonField) =>
+    (lang === "zh" ? c.desc_zh : c.desc_en) || c.name;
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setErr("");
@@ -132,9 +135,9 @@ export default function Page() {
                           className="rounded border px-1 py-0.5"
                         >
                           <option value="">—</option>
-                          {fieldNames.map((f) => (
-                            <option key={f} value={f}>
-                              {f}
+                          {canon.map((c) => (
+                            <option key={c.name} value={c.name}>
+                              {fieldLabel(c)}
                             </option>
                           ))}
                         </select>
