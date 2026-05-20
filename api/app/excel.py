@@ -26,6 +26,52 @@ from __future__ import annotations
 
 import csv
 import io
+import re
+from datetime import datetime
+
+
+# --- text-shaped date detection --------------------------------------------
+#
+# Real-world spreadsheets carry "dates" that aren't actually date cells:
+# the column was formatted as Text or General, and the user typed
+# "2023/3/15" or "2023年3月15日". openpyxl returns these as plain strings,
+# DuckDB's TRY_CAST(... AS DATE) requires YYYY-MM-DD so it returns NULL,
+# and downstream month(date_col) IS NULL produces stray '月' columns in
+# pivots. Catch these at ingest time and rewrite to ISO so the rest of
+# the pipeline sees clean dates.
+_DATE_SEP = re.compile(
+    r"^\s*(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})"
+    r"(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$"
+)
+_DATE_ZH = re.compile(
+    r"^\s*(\d{4})年(\d{1,2})月(\d{1,2})日\s*$"
+)
+
+
+def _maybe_iso_date(s: str) -> str | None:
+    """Detect a date-shaped text and return ISO (YYYY-MM-DDTHH:MM:SS) or
+    None when the string isn't a date."""
+    m = _DATE_SEP.match(s)
+    if m:
+        try:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if m.group(4) is not None:
+                hh = int(m.group(4))
+                mm = int(m.group(5))
+                ss = int(m.group(6) or 0)
+                return datetime(y, mo, d, hh, mm, ss).isoformat()
+            return datetime(y, mo, d).isoformat()
+        except ValueError:
+            return None
+    m = _DATE_ZH.match(s)
+    if m:
+        try:
+            return datetime(
+                int(m.group(1)), int(m.group(2)), int(m.group(3))
+            ).isoformat()
+        except ValueError:
+            return None
+    return None
 
 
 # --- cell -> string normalization ------------------------------------------
@@ -35,8 +81,8 @@ def _cell_to_str(v) -> str:
 
     openpyxl returns Python natives: None, str, int, float, datetime,
     bool. Dates become ISO strings (not Excel serials); integer-valued
-    floats become ints (no trailing .0) so downstream type inference is
-    sane.
+    floats become ints (no trailing .0); date-shaped text strings get
+    rewritten to ISO so downstream TRY_CAST(... AS DATE) succeeds.
     """
     if v is None:
         return ""
@@ -46,18 +92,23 @@ def _cell_to_str(v) -> str:
         return "TRUE" if v else "FALSE"
     if isinstance(v, float):
         return str(int(v)) if v.is_integer() else str(v)
+    if isinstance(v, str):
+        iso = _maybe_iso_date(v)
+        return iso if iso is not None else v
     return str(v)
 
 
 def _xls_cell_to_str(book, cell) -> str:
-    """xlrd version of _cell_to_str. Same target output."""
+    """xlrd version of _cell_to_str. Same target output, including the
+    text-date detection for cells stored as Text but typed as dates."""
     import xlrd
 
     ct = cell.ctype
     if ct in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK, xlrd.XL_CELL_ERROR):
         return ""
     if ct == xlrd.XL_CELL_TEXT:
-        return cell.value
+        iso = _maybe_iso_date(cell.value)
+        return iso if iso is not None else cell.value
     if ct == xlrd.XL_CELL_NUMBER:
         v = cell.value
         return str(int(v)) if v.is_integer() else str(v)
@@ -71,14 +122,26 @@ def _xls_cell_to_str(book, cell) -> str:
 # --- format-specific readers -----------------------------------------------
 
 def _read_xlsx_rows(raw: bytes) -> list[list[str]]:
-    """First sheet -> rectangular grid of strings. read_only=True so large
-    sheets don't load the whole workbook into memory; data_only=True so
-    formulas resolve to their cached values instead of returning "=SUM(...)".
+    """First sheet -> rectangular grid of strings.
+
+    read_only=False (the slower mode) so openpyxl auto-resolves date-
+    formatted cells: a cell formatted as 'yyyy-mm-dd' with serial value
+    44197 comes back as datetime(2021,1,1) instead of the raw float
+    44197.0 — which would otherwise hit downstream as "44197" and fail
+    TRY_CAST(... AS DATE). read_only=True occasionally misses these
+    conversions on non-standard custom formats.
+
+    data_only=True keeps formulas resolved to their cached values, so a
+    cell with =TODAY() reads as a real datetime, not the formula text.
+
+    Trade-off: ~3-5x slower than read_only on large sheets. For the
+    typical spreadsheet sizes seen in this product (hundreds to a few
+    thousand rows) the wall-clock cost is negligible.
     """
     import openpyxl
 
     wb = openpyxl.load_workbook(
-        io.BytesIO(raw), read_only=True, data_only=True
+        io.BytesIO(raw), read_only=False, data_only=True
     )
     ws = wb[wb.sheetnames[0]]
     rows: list[list[str]] = []
