@@ -12,6 +12,11 @@ router = APIRouter(prefix="/api/mapping", tags=["mapping"])
 
 class ProposeReq(BaseModel):
     source_ids: list[int]
+    # "smart" (default) -> LLM discovers a canonical schema from the data
+    # and clusters similar columns across files; falls back to the
+    # bilingual dictionary heuristic without an OpenAI key.
+    # "raw" -> identity mapping: each source column is its own canonical.
+    mode: str = "smart"
 
 
 class ConfirmReq(BaseModel):
@@ -47,12 +52,14 @@ def propose(req: ProposeReq) -> dict:
         }
 
     files = [{"filename": s["filename"], "columns": s["columns"]} for s in srcs]
-    key = cache.cache_key("mapping", files)
+    # Mode is part of the cache key so a raw-mode proposal doesn't serve
+    # a smart-mode cached result (or vice versa).
+    key = cache.cache_key("mapping", {"files": files, "mode": req.mode})
     hit = cache.cache_get(key)
     if hit:
         return {**hit, "cached": True, "message": msg("mapping_cached")}
 
-    result = llm.propose_mapping(files)
+    result = llm.propose_mapping(files, mode=req.mode)
     cache.cache_put(key, result)
     return {**result, "cached": False, "message": msg("mapping_proposed")}
 

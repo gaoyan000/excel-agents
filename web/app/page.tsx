@@ -17,6 +17,7 @@ export default function Page() {
   const [qres, setQres] = useState<(api.Table & { sql: string | null }) | null>(null);
   const [skillName, setSkillName] = useState("");
   const [savedSkill, setSavedSkill] = useState<string>("");
+  const [mapMode, setMapMode] = useState<api.MapMode>("smart");
   // Tri-state: undefined while /health hasn't returned, then true|false.
   // Starts undefined so we don't flash the "key missing" banner before
   // the check completes.
@@ -104,7 +105,7 @@ export default function Page() {
             <h2 className="font-semibold">{t(lang, "propose")}</h2>
             <button
               onClick={async () => {
-                const r = await run(() => api.propose(ids));
+                const r = await run(() => api.propose(ids, mapMode));
                 if (r) {
                   setMapping(r.mapping);
                   setCanon(r.canonical_schema);
@@ -115,6 +116,35 @@ export default function Page() {
             >
               {t(lang, "propose")}
             </button>
+          </div>
+          {/* Mode toggle: smart (LLM clusters) vs raw (identity). */}
+          <div className="text-sm">
+            <div className="font-medium text-slate-600">
+              {t(lang, "mapModeLabel")}
+            </div>
+            <div className="mt-1 inline-flex rounded border bg-slate-50 p-0.5">
+              {(["smart", "raw"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMapMode(m)}
+                  className={
+                    "rounded px-3 py-1 text-xs " +
+                    (mapMode === m
+                      ? "bg-white shadow-sm text-slate-900"
+                      : "text-slate-500 hover:text-slate-700")
+                  }
+                >
+                  {t(lang, m === "smart" ? "mapModeSmart" : "mapModeRaw")}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              {t(
+                lang,
+                mapMode === "smart" ? "mapModeSmartHint" : "mapModeRawHint",
+              )}
+            </p>
           </div>
           {note && <p className="text-xs text-slate-500">{note}</p>}
           {Object.keys(mapping).length > 0 && (

@@ -150,15 +150,27 @@ _MAPPING_SCHEMA: dict = {
 
 
 _MAPPING_SYS = (
-    "You normalize messy spreadsheet headers (English OR Chinese) into a "
-    "canonical schema for a data-cleaning tool. Prefer reusing these "
-    "canonical fields when applicable: "
+    "You unify column headers from multiple spreadsheet files into ONE "
+    "canonical schema for a data-cleaning tool.\n\n"
+    "GOALS:\n"
+    "1) DISCOVER canonical names from the data itself — match the source "
+    "vocabulary (Chinese names for Chinese data, English for English). "
+    "Keep names short (≤ 24 chars), avoid spaces (use _ between words).\n"
+    "2) CLUSTER semantically similar source columns ACROSS files into the "
+    "SAME canonical. E.g. 日期, 下单日期, Order Date → one canonical (e.g. "
+    "日期). 客户, Customer, 客户名称 → one canonical (e.g. 客户). 运费合计, "
+    "运费总额, Freight Total → one canonical.\n"
+    "3) For each canonical field include type, desc_en, desc_zh (both "
+    "languages, one-line labels).\n\n"
+    "COMMON DEFAULTS you MAY reuse when source columns clearly match — "
+    "otherwise INVENT canonical names that fit the source vocabulary "
+    "(e.g. logistics: 运费合计, 发货人, 件数; do NOT force-fit logistics "
+    "data into customer_name/revenue/etc.):\n"
     + json.dumps(CANON_META, ensure_ascii=False)
-    + ". Every canonical field MUST have both desc_en and desc_zh. For each "
-    "source column emit one record in `mappings` with the exact source name "
-    "and either a canonical `to` or null when unclear; give a 0..1 "
-    "confidence. Be conservative: low confidence when ambiguous so a human "
-    "confirms."
+    + "\n\n"
+    "For each source column emit one record in `mappings` with the EXACT "
+    "source name, the canonical `to`, and a 0..1 `confidence`. Be "
+    "conservative: low confidence on ambiguous columns so a human confirms."
 )
 
 
@@ -185,8 +197,44 @@ def _enrich_canonical_schema(fields: list[dict]) -> list[dict]:
     return out
 
 
-def propose_mapping(files: list[dict]) -> dict:
-    """files: [{filename, columns:[{name,type,samples}]}]."""
+def raw_mapping(files: list[dict]) -> dict:
+    """Identity mapping: each source column is its own canonical.
+
+    Columns with identical names across files share one canonical entry
+    (so the unified table collapses them). Different names stay separate
+    — the user can manually merge them in the UI if they want, or switch
+    to smart mode to let the LLM cluster semantically.
+    """
+    canonical: dict[str, dict] = {}
+    mapping: dict[str, dict] = {}
+    for f in files:
+        for col in f["columns"]:
+            name = col["name"]
+            mapping[name] = {
+                "to": name,
+                "confidence": 1.0,
+                "rationale": "raw column name (no mapping)",
+            }
+            if name not in canonical:
+                canonical[name] = {
+                    "name": name,
+                    "type": col.get("type", "VARCHAR"),
+                    "desc_en": name,
+                    "desc_zh": name,
+                }
+    return {"canonical_schema": list(canonical.values()), "mapping": mapping}
+
+
+def propose_mapping(files: list[dict], mode: str = "smart") -> dict:
+    """files: [{filename, columns:[{name,type,samples}]}].
+
+    mode: 'smart' (default) -> LLM discovers a canonical schema from the
+    data and clusters similar columns across files; falls back to the
+    bilingual dictionary heuristic when OPENAI_API_KEY is absent.
+    mode: 'raw' -> identity mapping, no LLM call.
+    """
+    if mode == "raw":
+        return raw_mapping(files)
     if not SETTINGS.llm_enabled:
         return _heuristic_mapping(files)
     try:

@@ -27,14 +27,18 @@ export async function ingest(files: FileList): Promise<{
   return j(await fetch(`${BASE}/api/ingest`, { method: "POST", body: fd }));
 }
 
-export async function propose(sourceIds: number[]): Promise<{
+export type MapMode = "smart" | "raw";
+
+export async function propose(
+  sourceIds: number[], mode: MapMode = "smart"
+): Promise<{
   mapping: Mapping; canonical_schema: CanonField[]; cached: boolean; message: Bi;
 }> {
   return j(
     await fetch(`${BASE}/api/mapping/propose`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_ids: sourceIds }),
+      body: JSON.stringify({ source_ids: sourceIds, mode }),
     })
   );
 }

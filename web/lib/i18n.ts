@@ -10,6 +10,17 @@ export const STRINGS = {
   upload: { zh: "1. 上传文件（CSV/XLSX，可多选）", en: "1. Upload files (CSV/XLSX, multiple)" },
   ingest: { zh: "导入并识别结构", en: "Ingest & introspect" },
   propose: { zh: "2. 生成字段映射", en: "2. Propose mapping" },
+  mapModeLabel: { zh: "映射方式", en: "Mapping mode" },
+  mapModeSmart: { zh: "智能映射", en: "Smart (LLM)" },
+  mapModeRaw: { zh: "原始列名", en: "Raw column names" },
+  mapModeSmartHint: {
+    zh: "用 LLM 跨文件聚合相似列（如 日期 与 下单日期 合并）。",
+    en: "LLM clusters similar columns across files (e.g. 日期 + Order Date).",
+  },
+  mapModeRawHint: {
+    zh: "每个源列即标准字段；同名列自动合并，其他保持独立。",
+    en: "Each source column is its own canonical; identical names merge.",
+  },
   source: { zh: "源列", en: "Source column" },
   canonical: { zh: "标准字段", en: "Canonical field" },
   confidence: { zh: "置信度", en: "Confidence" },
