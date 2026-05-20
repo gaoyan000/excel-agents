@@ -59,7 +59,7 @@ export default function Page() {
         <input
           type="file"
           multiple
-          accept=".csv,.tsv,.xlsx"
+          accept=".csv,.tsv,.xlsx,.xls"
           onChange={async (e) => {
             const files = e.target.files;
             if (!files?.length) return;

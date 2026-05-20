@@ -5,3 +5,4 @@ duckdb==1.3.2
 openai==1.59.9
 pydantic==2.10.4
 httpx==0.28.1
+xlrd==2.0.1
