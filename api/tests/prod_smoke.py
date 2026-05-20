@@ -86,7 +86,11 @@ def run(base_url: str, check_skill: str | None) -> int:
             json={"source_ids": ids, "mapping": m,
                   "canonical_schema": p["canonical_schema"]},
         ).json()
-        check("canonical schema v1", c["canonical_schema_version"] == 1)
+        # The canonical schema is durable in prod — version monotonically
+        # increases across runs, so `== 1` only holds on a fresh DB.
+        v = c.get("canonical_schema_version")
+        check(f"canonical schema versioned (got v{v})",
+              isinstance(v, int) and v >= 1)
 
         print("unified preview")
         pv = client.post(
