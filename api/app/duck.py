@@ -44,10 +44,21 @@ def base_scan(path: str) -> str:
 
 def _connect() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
+    # Excel extension provides read_xlsx (DuckDB 1.2+). The image pre-installs
+    # it at build time (Dockerfile), so INSTALL is a no-op from cache and LOAD
+    # activates it. We log failures instead of swallowing them: silent failure
+    # here used to cause confusing CatalogExceptions downstream on xlsx upload
+    # ("Table Function with name read_xlsx does not exist"), making the real
+    # cause invisible. CSV/TSV ingest still works without the extension.
     try:
-        con.execute("INSTALL excel; LOAD excel;")
-    except Exception:
-        pass  # CSV path still works fully offline without the extension.
+        con.execute("INSTALL excel")
+        con.execute("LOAD excel")
+    except Exception as e:  # noqa: BLE001 - surface the cause, don't swallow
+        import sys
+        print(
+            f"WARN duck._connect: failed to load excel extension: {e!r}",
+            file=sys.stderr,
+        )
     if SETTINGS.r2_enabled:
         # R2 is S3-compatible; httpfs lets DuckDB read s3:// CSV directly.
         con.execute("INSTALL httpfs; LOAD httpfs;")
