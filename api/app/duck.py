@@ -92,6 +92,16 @@ def build_unified_sql(sources: list[dict], mapping: dict) -> str:
     `mapping` is {source_col: canonical_field}. Canonical fields not present
     in a given file are emitted as NULL so the union stays rectangular. A
     `source_file` column is always added for provenance.
+
+    Every projected column is CAST to VARCHAR. Real-world spreadsheets
+    routinely infer DIFFERENT types for the SAME canonical name across
+    files — e.g. a column called 日期 may be parsed as TIMESTAMP in one
+    file (clean dates) and DOUBLE in another (serial numbers wearing the
+    same header). DuckDB's UNION ALL then fails with a ConversionException
+    trying to merge incompatible types. VARCHAR is the universal lowest
+    common denominator. Schema introspection (and skills) still see the
+    inferred per-source types; only the cross-file VIEW is text. NL->SQL
+    is told about this so it casts inside SUM/WHERE/ORDER BY.
     """
     canonical_fields = sorted(set(mapping.values()))
     selects: list[str] = []
@@ -104,9 +114,14 @@ def build_unified_sql(sources: list[dict], mapping: dict) -> str:
                 None,
             )
             if src_col:
-                cols_sql.append(f"{_quote_ident(src_col)} AS {_quote_ident(field)}")
+                cols_sql.append(
+                    f"CAST({_quote_ident(src_col)} AS VARCHAR) "
+                    f"AS {_quote_ident(field)}"
+                )
             else:
-                cols_sql.append(f"NULL AS {_quote_ident(field)}")
+                cols_sql.append(
+                    f"CAST(NULL AS VARCHAR) AS {_quote_ident(field)}"
+                )
         cols_sql.append(f"{_quote_str(src['filename'])} AS source_file")
         selects.append(
             f"SELECT {', '.join(cols_sql)} FROM {_scan_expr(src['raw_path'])}"

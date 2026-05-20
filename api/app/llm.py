@@ -299,9 +299,16 @@ def nl_to_sql(question: str, canonical_fields: list[dict]) -> str | None:
     schema_desc = json.dumps(canonical_fields, ensure_ascii=False)
     sys = (
         "Translate the user's question (Chinese or English) into ONE "
-        "read-only DuckDB SELECT over a table named t with columns: "
-        + schema_desc
-        + ". No DDL/DML, no semicolons, no comments. Return only the SQL "
+        "read-only DuckDB SELECT over a table named t.\n"
+        "STORAGE: every column in t is VARCHAR (text). The `type` field "
+        "below is the SEMANTIC type — you MUST cast columns for any "
+        "numeric, date, or comparison work. Prefer TRY_CAST so dirty "
+        "rows go to NULL instead of erroring the whole query, e.g.\n"
+        "  SUM(TRY_CAST(\"revenue\" AS DOUBLE))\n"
+        "  WHERE TRY_CAST(\"order_date\" AS DATE) >= DATE '2023-01-01'\n"
+        "  ORDER BY TRY_CAST(\"件数\" AS INTEGER) DESC\n"
+        "Schema: " + schema_desc + "\n"
+        "No DDL/DML, no semicolons, no comments. Return only the SQL "
         "string in the `sql` field."
     )
     try:
