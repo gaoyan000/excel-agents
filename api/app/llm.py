@@ -162,6 +162,29 @@ _MAPPING_SYS = (
 )
 
 
+def _enrich_canonical_schema(fields: list[dict]) -> list[dict]:
+    """Backfill desc_en/desc_zh/type from CANON_META for canonical names
+    the model reused from the dictionary.
+
+    Strict json_schema guarantees the fields are *present* but does not
+    guarantee they are non-empty. When the LLM ships terse strings (or
+    just echoes the canonical name into desc_en), the frontend's
+    bilingual dropdown labels fall back to the raw `name`. Authoritative
+    descriptions live in CANON_META — overlay them whenever the LLM's
+    versions are missing/blank.
+    """
+    out: list[dict] = []
+    for f in fields:
+        merged = dict(f)
+        meta = CANON_META.get(merged.get("name", ""))
+        if meta:
+            for k in ("type", "desc_en", "desc_zh"):
+                if not merged.get(k):
+                    merged[k] = meta[k]
+        out.append(merged)
+    return out
+
+
 def propose_mapping(files: list[dict]) -> dict:
     """files: [{filename, columns:[{name,type,samples}]}]."""
     if not SETTINGS.llm_enabled:
@@ -200,7 +223,9 @@ def propose_mapping(files: list[dict]) -> dict:
             for rec in data.get("mappings", [])
         }
         return {
-            "canonical_schema": data.get("canonical_schema", []),
+            "canonical_schema": _enrich_canonical_schema(
+                data.get("canonical_schema", [])
+            ),
             "mapping": mapping,
         }
     except Exception:
