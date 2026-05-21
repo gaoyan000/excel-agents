@@ -328,10 +328,24 @@ export default function Page() {
 }
 
 function DataTable({ tbl }: { tbl: api.Table }) {
+  // Cap the vertical viewport at ~10 rows so wide tables (§3 preview with
+  // 15+ columns) don't push the rest of the page off-screen. The header
+  // sticks so it stays visible while the user scrolls within the panel.
+  const scrollable = tbl.rows.length > 10;
   return (
-    <div className="overflow-x-auto">
+    <div
+      className={
+        "overflow-x-auto " +
+        (scrollable ? "max-h-96 overflow-y-auto border rounded" : "")
+      }
+    >
       <table className="w-full text-xs">
-        <thead className="bg-slate-100 text-left">
+        <thead
+          className={
+            "bg-slate-100 text-left " +
+            (scrollable ? "sticky top-0 z-10" : "")
+          }
+        >
           <tr>
             {tbl.columns.map((c) => (
               <th key={c} className="px-2 py-1">
