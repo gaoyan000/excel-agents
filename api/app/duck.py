@@ -28,10 +28,30 @@ def _scan_expr(path: str) -> str:
     Excel files (.xls / .xlsx) are converted to CSV in Python at ingest
     time (see app/excel.py) so DuckDB never sees them directly — that
     keeps header detection and subtotal-row filtering in one place.
+
+    We don't use read_csv_auto's sniffer here. For files we wrote
+    ourselves (the xlsx->csv path) the dialect is known exactly; for
+    raw CSV uploads, the sniffer occasionally fails with "could not
+    automatically detect the CSV Parsing dialect/types" on edge cases
+    (single-column sheets, unusual cell content, mixed null patterns).
+    We declare the dialect explicitly and turn on null_padding +
+    ignore_errors so a single bad row doesn't kill the whole ingest.
+    auto_detect=true still infers TYPES from sampled rows.
     """
     p = path.lower()
     if p.endswith(".csv") or p.endswith(".tsv") or p.endswith(".txt"):
-        return f"read_csv_auto('{path}', sample_size=-1, all_varchar=false)"
+        delim = "\\t" if p.endswith(".tsv") else ","
+        return (
+            f"read_csv('{path}', "
+            f"delim='{delim}', "
+            f"quote='\"', "
+            f"escape='\"', "
+            f"header=true, "
+            f"auto_detect=true, "
+            f"sample_size=-1, "
+            f"null_padding=true, "
+            f"ignore_errors=true)"
+        )
     raise ValueError(f"Unsupported file type: {path}")
 
 
