@@ -23,6 +23,11 @@ export const STRINGS = {
   },
   source: { zh: "源列", en: "Source column" },
   canonical: { zh: "标准字段", en: "Canonical field" },
+  customField: { zh: "➕ 自定义字段…", en: "➕ Custom field…" },
+  customFieldPrompt: {
+    zh: "输入标准字段名称（用于该源列）：",
+    en: "Enter a canonical field name for this source column:",
+  },
   confidence: { zh: "置信度", en: "Confidence" },
   confirm: { zh: "确认映射", en: "Confirm mapping" },
   preview: { zh: "3. 统一表预览", en: "3. Unified table preview" },

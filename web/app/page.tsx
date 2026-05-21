@@ -167,12 +167,40 @@ export default function Page() {
                       <td>
                         <select
                           value={m.to ?? ""}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "__custom__") {
+                              // Source columns with no usable header (e.g.
+                              // the auto-named "column20" from a ragged
+                              // sheet) often need a name typed by hand.
+                              const name = window
+                                .prompt(t(lang, "customFieldPrompt"), col)
+                                ?.trim();
+                              if (!name) return; // cancelled / empty
+                              // Register the new canonical field so it shows
+                              // in the unified table and every dropdown.
+                              if (!canon.some((c) => c.name === name)) {
+                                setCanon([
+                                  ...canon,
+                                  {
+                                    name,
+                                    type: "VARCHAR",
+                                    desc_en: name,
+                                    desc_zh: name,
+                                  },
+                                ]);
+                              }
+                              setMapping({
+                                ...mapping,
+                                [col]: { ...m, to: name },
+                              });
+                              return;
+                            }
                             setMapping({
                               ...mapping,
-                              [col]: { ...m, to: e.target.value || null },
-                            })
-                          }
+                              [col]: { ...m, to: v || null },
+                            });
+                          }}
                           className="rounded border px-1 py-0.5"
                         >
                           <option value="">—</option>
@@ -181,6 +209,9 @@ export default function Page() {
                               {fieldLabel(c)}
                             </option>
                           ))}
+                          <option value="__custom__">
+                            {t(lang, "customField")}
+                          </option>
                         </select>
                       </td>
                       <td>{(m.confidence * 100).toFixed(0)}%</td>
