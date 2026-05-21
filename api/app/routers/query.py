@@ -1,7 +1,12 @@
-"""Phase 3: unified table preview + NL→SQL query (zh/en)."""
+"""Phase 3: unified table preview + NL→SQL query (zh/en) + xlsx export."""
 from __future__ import annotations
 
+import io
+from typing import Any
+from urllib.parse import quote
+
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .. import cache, db, duck, llm
@@ -93,3 +98,70 @@ def query(req: QueryReq) -> dict:
 
     cache.cache_put(key, sql)
     return {"columns": res["columns"], "rows": res["rows"], "sql": res["sql"]}
+
+
+class ExportReq(BaseModel):
+    columns: list[str]
+    rows: list[list[Any]]
+    # The browser uses this to name the downloaded file. UTF-8 safe — we
+    # encode it via RFC 5987 in the Content-Disposition header below so
+    # Chinese filenames like "查询结果.xlsx" survive the round-trip.
+    filename: str = "查询结果.xlsx"
+    # Optional worksheet name; Excel forbids the chars / \ ? * [ ] : and
+    # caps the length at 31. We clamp on the server.
+    sheet_name: str = "Sheet1"
+
+
+def _clean_sheet_name(name: str) -> str:
+    cleaned = "".join(c for c in name if c not in r"/\?*[]:")[:31].strip()
+    return cleaned or "Sheet1"
+
+
+@router.post("/export")
+def export_xlsx(req: ExportReq) -> StreamingResponse:
+    """Stream the (columns, rows) payload back as an .xlsx file.
+
+    We accept the data from the client rather than re-running the SQL
+    server-side so the export is always exactly what the user saw on
+    screen — no re-cache, no race with later mappings.
+    """
+    # openpyxl is a regular dependency (used by app/excel.py for ingest),
+    # so importing it here is free.
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = _clean_sheet_name(req.sheet_name)
+    ws.append(req.columns)
+    for row in req.rows:
+        # openpyxl writes native types directly; map JSON `None` to a
+        # blank cell. Lists/dicts in cells aren't legal — stringify them
+        # defensively (this shouldn't happen with our table shape but
+        # keeps the route robust to caller mistakes).
+        ws.append([
+            None if v is None
+            else v if isinstance(v, (str, int, float, bool))
+            else str(v)
+            for v in row
+        ])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    # RFC 5987: filename* uses percent-encoded UTF-8 so Chinese filenames
+    # work in every modern browser. We also supply an ASCII fallback for
+    # extra-paranoid clients via plain `filename=`.
+    safe_name = req.filename.replace('"', "").strip() or "export.xlsx"
+    ascii_fallback = "export.xlsx"
+    disposition = (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(safe_name)}"
+    )
+    return StreamingResponse(
+        buf,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": disposition},
+    )

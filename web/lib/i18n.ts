@@ -28,6 +28,8 @@ export const STRINGS = {
   preview: { zh: "3. 统一表预览", en: "3. Unified table preview" },
   loadPreview: { zh: "加载预览", en: "Load preview" },
   query: { zh: "4. 自然语言查询", en: "4. Natural-language query" },
+  exportXlsx: { zh: "导出 Excel", en: "Export to Excel" },
+  exporting: { zh: "导出中…", en: "Exporting…" },
   ask: { zh: "查询", en: "Ask" },
   queryPlaceholder: {
     zh: "例如：按客户统计总收入",

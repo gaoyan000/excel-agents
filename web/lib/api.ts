@@ -79,6 +79,26 @@ export async function query(
   );
 }
 
+export async function exportXlsx(
+  columns: string[], rows: unknown[][], filename = "查询结果.xlsx"
+): Promise<void> {
+  const r = await fetch(`${BASE}/api/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ columns, rows, filename }),
+  });
+  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function saveSkill(
   name: string, sourceIds: number[]
 ): Promise<{ skill: { id: number; name: string; steps: unknown[] }; message: Bi }> {

@@ -252,7 +252,37 @@ export default function Page() {
               {qres.sql}
             </pre>
           )}
-          {qres && <DataTable tbl={qres} />}
+          {qres && (
+            <>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={busy || qres.rows.length === 0}
+                  onClick={async () => {
+                    if (!qres) return;
+                    const ts = new Date()
+                      .toISOString()
+                      .replace(/[:.]/g, "-")
+                      .slice(0, 19);
+                    const fname = `${
+                      lang === "zh" ? "查询结果" : "query_result"
+                    }_${ts}.xlsx`;
+                    await run(() =>
+                      api.exportXlsx(
+                        qres.columns,
+                        qres.rows as unknown[][],
+                        fname,
+                      ),
+                    );
+                  }}
+                  className="rounded bg-emerald-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+                >
+                  {t(lang, busy ? "exporting" : "exportXlsx")}
+                </button>
+              </div>
+              <DataTable tbl={qres} />
+            </>
+          )}
         </section>
       )}
 
