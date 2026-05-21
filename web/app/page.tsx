@@ -35,6 +35,14 @@ export default function Page() {
   // English desc in en mode, falling back to the canonical name.
   const fieldLabel = (c: api.CanonField) =>
     (lang === "zh" ? c.desc_zh : c.desc_en) || c.name;
+  // Which uploaded file(s) each source column came from — lets the user
+  // trace an auto-named column ("column20") back to its origin file.
+  const colSources: Record<string, string[]> = {};
+  for (const s of sources) {
+    for (const c of s.columns) {
+      (colSources[c.name] ||= []).push(s.filename);
+    }
+  }
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setErr("");
@@ -163,7 +171,18 @@ export default function Page() {
                       key={col}
                       className={m.confidence < 0.6 ? "bg-amber-50" : ""}
                     >
-                      <td className="py-1 font-mono">{col}</td>
+                      <td className="py-1 font-mono">
+                        {col}
+                        {colSources[col]?.length > 0 && (
+                          <div className="font-sans text-[10px] text-slate-400">
+                            {colSources[col].length === 1
+                              ? colSources[col][0]
+                              : `${colSources[col].length}${
+                                  lang === "zh" ? " 个文件" : " files"
+                                }`}
+                          </div>
+                        )}
+                      </td>
                       <td>
                         <select
                           value={m.to ?? ""}
