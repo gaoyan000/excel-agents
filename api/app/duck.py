@@ -41,16 +41,28 @@ def _scan_expr(path: str) -> str:
     p = path.lower()
     if p.endswith(".csv") or p.endswith(".tsv") or p.endswith(".txt"):
         delim = "\\t" if p.endswith(".tsv") else ","
+        # all_varchar=true skips the type sniffer entirely — production hit
+        # InvalidInputException on a real client file even after dialect was
+        # locked down, and the sniff error specifically said "dialect/TYPES"
+        # could not be detected. Per-source types aren't load-bearing here:
+        # build_unified_sql CASTs every projected column to VARCHAR, and
+        # nl_to_sql is prompted to TRY_CAST inside SUM/WHERE/ORDER BY, so
+        # the whole downstream pipeline already treats stored data as text.
+        # The remaining knobs make the parser as forgiving as DuckDB allows:
+        # null_padding for short rows, ignore_errors for unrecoverable rows,
+        # strict_mode=false for non-RFC-4180 content, and a generous
+        # max_line_size so a single long row can't truncate the parse.
         return (
             f"read_csv('{path}', "
             f"delim='{delim}', "
             f"quote='\"', "
             f"escape='\"', "
             f"header=true, "
-            f"auto_detect=true, "
-            f"sample_size=-1, "
+            f"all_varchar=true, "
             f"null_padding=true, "
-            f"ignore_errors=true)"
+            f"ignore_errors=true, "
+            f"strict_mode=false, "
+            f"max_line_size=10485760)"
         )
     raise ValueError(f"Unsupported file type: {path}")
 
