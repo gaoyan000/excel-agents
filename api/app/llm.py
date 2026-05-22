@@ -270,6 +270,22 @@ def propose_mapping(files: list[dict], mode: str = "smart") -> dict:
             }
             for rec in data.get("mappings", [])
         }
+        # The model sometimes OMITS a source column from its mappings array
+        # — typically one it judges empty or uninteresting (e.g. a header
+        # like 不含税 with no data below it). Those columns would then vanish
+        # from the mapping UI and the user could never map them, even though
+        # the data was ingested. Guarantee every source column is present so
+        # nothing silently disappears; omitted ones default to unmapped.
+        for f in files:
+            for col in f["columns"]:
+                mapping.setdefault(
+                    col["name"],
+                    {
+                        "to": None,
+                        "confidence": 0.0,
+                        "rationale": "not proposed by LLM — confirm manually",
+                    },
+                )
         return {
             "canonical_schema": _enrich_canonical_schema(
                 data.get("canonical_schema", [])
