@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import * as api from "@/lib/api";
 import { Lang, t } from "@/lib/i18n";
+import { AgentSection } from "./agent-section";
 
 export default function Page() {
   const [lang, setLang] = useState<Lang>("zh");
@@ -15,9 +16,8 @@ export default function Page() {
   const [tbl, setTbl] = useState<api.Table | null>(null);
   const [question, setQuestion] = useState("");
   const [qres, setQres] = useState<(api.Table & { sql: string | null }) | null>(null);
-  const [skillName, setSkillName] = useState("");
-  const [savedSkill, setSavedSkill] = useState<string>("");
   const [mapMode, setMapMode] = useState<api.MapMode>("smart");
+  const [mappingConfirmed, setMappingConfirmed] = useState(false);
   // Tri-state: undefined while /health hasn't returned, then true|false.
   // Starts undefined so we don't flash the "key missing" banner before
   // the check completes.
@@ -243,7 +243,10 @@ export default function Page() {
                   const r = await run(() =>
                     api.confirm(ids, mapping, canon)
                   );
-                  if (r) setNote(r.message[lang]);
+                  if (r) {
+                    setNote(r.message[lang]);
+                    setMappingConfirmed(true);
+                  }
                 }}
                 className="rounded bg-emerald-600 px-3 py-1 text-sm text-white"
               >
@@ -336,36 +339,9 @@ export default function Page() {
         </section>
       )}
 
-      {/* 5. Save skill */}
-      {canon.length > 0 && (
-        <section className="rounded-lg border bg-white p-4 space-y-3">
-          <h2 className="font-semibold">{t(lang, "saveSkill")}</h2>
-          <div className="flex gap-2">
-            <input
-              value={skillName}
-              onChange={(e) => setSkillName(e.target.value)}
-              placeholder={t(lang, "skillName")}
-              className="flex-1 rounded border px-2 py-1 text-sm"
-            />
-            <button
-              onClick={async () => {
-                const r = await run(() =>
-                  api.saveSkill(skillName, ids)
-                );
-                if (r)
-                  setSavedSkill(
-                    `${r.skill.name} v? · #${r.skill.id} · ${r.skill.steps.length} ops`
-                  );
-              }}
-              className="rounded bg-emerald-600 px-3 py-1 text-sm text-white"
-            >
-              {t(lang, "save")}
-            </button>
-          </div>
-          {savedSkill && (
-            <p className="text-sm text-emerald-700">✓ {savedSkill}</p>
-          )}
-        </section>
+      {/* 5. AI Skill Planner */}
+      {mappingConfirmed && (
+        <AgentSection sourceIds={ids} lang={lang} />
       )}
 
       {llmEnabled === false && (

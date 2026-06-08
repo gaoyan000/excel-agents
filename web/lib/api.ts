@@ -110,3 +110,84 @@ export async function saveSkill(
     })
   );
 }
+
+// --- agent skill planner ---------------------------------------------------
+
+export type Step = {
+  op: string;
+  from?: string;
+  to?: string;
+  column?: string;
+  type?: string;
+  format?: string;
+  region?: string;
+  keys?: string[];
+  predicate?: string;
+  expr?: string;
+};
+
+export type AgentSession = {
+  session_id: string;
+  schema: CanonField[];
+  snapshot: Record<string, string | null>[];
+  current_steps: Step[];
+};
+
+export type PlanOk = {
+  status: "ok";
+  steps: Step[];
+  explanation: string;
+  snapshot: Record<string, string | null>[];
+  attempts: number;
+};
+
+export type PlanResult =
+  | { ok: true; data: PlanOk }
+  | { ok: false; error: string; partialSteps: Step[]; attempts: number };
+
+export async function agentStart(sourceIds: number[]): Promise<AgentSession> {
+  return j(
+    await fetch(`${BASE}/api/agent/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_ids: sourceIds }),
+    })
+  );
+}
+
+export async function agentPlan(
+  sessionId: string,
+  prompt: string,
+): Promise<PlanResult> {
+  const r = await fetch(`${BASE}/api/agent/session/${sessionId}/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  if (r.status === 422) {
+    const body = await r.json();
+    const detail = body.detail ?? {};
+    return {
+      ok: false,
+      error: detail.error ?? "planning failed",
+      partialSteps: detail.partial_steps ?? [],
+      attempts: detail.attempts ?? 0,
+    };
+  }
+  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  return { ok: true, data: await r.json() };
+}
+
+export async function agentConfirm(
+  sessionId: string,
+  name: string,
+  steps?: Step[],
+): Promise<{ skill: { id: number; name: string; steps: Step[] } }> {
+  return j(
+    await fetch(`${BASE}/api/agent/session/${sessionId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, steps }),
+    })
+  );
+}

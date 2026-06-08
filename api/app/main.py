@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import SETTINGS
 from .db import init_db
+from .agent import router as agent_router
 from .routers import ingest, mapping, query, skills
 
 app = FastAPI(title="Spreadsheet Agent", version="0.1.0")
@@ -35,3 +36,4 @@ app.include_router(ingest.router)
 app.include_router(mapping.router)
 app.include_router(query.router)
 app.include_router(skills.router)
+app.include_router(agent_router.router)

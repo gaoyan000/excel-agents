@@ -49,6 +49,23 @@ export const STRINGS = {
     zh: "未配置 OPENAI_API_KEY：映射走双语启发式，查询返回样例。",
     en: "No OPENAI_API_KEY: heuristic mapping; query returns a sample.",
   },
+  // agent skill planner
+  agentSection: { zh: "5. AI 技能规划", en: "5. AI Skill Planner" },
+  agentStart: { zh: "开启 AI 规划", en: "Start AI Planning" },
+  agentStartHint: {
+    zh: "AI 分析当前数据，推荐清洗步骤（类型转换、去重、格式标准化等），支持多轮迭代优化。",
+    en: "AI inspects your data and proposes transformation steps (casts, dedupe, normalizations). Refine with follow-up prompts.",
+  },
+  agentStepsTitle: { zh: "当前步骤", en: "Current steps" },
+  agentSnapshotTitle: { zh: "输出预览", en: "Output preview" },
+  agentHistory: { zh: "对话记录", en: "Conversation" },
+  agentPromptPlaceholder: {
+    zh: "例如：归一化电话号码，按客户和日期去重",
+    en: "e.g. normalize phones, dedupe by customer and date",
+  },
+  agentPlan: { zh: "生成方案", en: "Plan" },
+  agentPlanning: { zh: "规划中…", en: "Planning…" },
+  agentConfirm: { zh: "确认并保存技能", en: "Confirm & Save Skill" },
 };
 
 export function t(lang: Lang, key: keyof typeof STRINGS): string {

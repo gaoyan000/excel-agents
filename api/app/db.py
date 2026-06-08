@@ -72,6 +72,20 @@ CREATE TABLE IF NOT EXISTS llm_cache (
     value_json TEXT NOT NULL,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id TEXT PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    source_ids_json TEXT NOT NULL,
+    schema_json TEXT NOT NULL,
+    canonical_version INTEGER NOT NULL,
+    source_paths_json TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    base_steps_json TEXT NOT NULL DEFAULT '[]',
+    current_steps_json TEXT NOT NULL DEFAULT '[]',
+    current_snapshot_json TEXT NOT NULL DEFAULT '[]',
+    history_json TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL
+);
 """
 
 DEFAULT_PROJECT_ID = 1
@@ -273,3 +287,79 @@ def record_run(
             ),
         )
         return int(cur.lastrowid)
+
+
+# --- agent session helpers -------------------------------------------------
+
+def create_agent_session(
+    session_id: str,
+    source_ids: list[int],
+    schema: list[dict],
+    canonical_version: int,
+    source_paths: list[str],
+    fingerprint: str,
+    base_steps: list[dict],
+    current_steps: list[dict],
+    current_snapshot: list[dict],
+    project_id: int = DEFAULT_PROJECT_ID,
+) -> None:
+    with conn() as c:
+        c.execute(
+            "INSERT INTO agent_sessions (id, project_id, source_ids_json,"
+            " schema_json, canonical_version, source_paths_json, fingerprint,"
+            " base_steps_json, current_steps_json, current_snapshot_json,"
+            " history_json, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                session_id,
+                project_id,
+                json.dumps(source_ids),
+                json.dumps(schema, ensure_ascii=False),
+                canonical_version,
+                json.dumps(source_paths),
+                fingerprint,
+                json.dumps(base_steps, ensure_ascii=False),
+                json.dumps(current_steps, ensure_ascii=False),
+                json.dumps(current_snapshot, ensure_ascii=False),
+                "[]",
+                time.time(),
+            ),
+        )
+
+
+def get_agent_session(session_id: str) -> dict[str, Any] | None:
+    with conn() as c:
+        r = c.execute(
+            "SELECT * FROM agent_sessions WHERE id=?", (session_id,)
+        ).fetchone()
+        if not r:
+            return None
+        return {
+            "session_id": r["id"],
+            "schema": json.loads(r["schema_json"]),
+            "canonical_version": r["canonical_version"],
+            "source_paths": json.loads(r["source_paths_json"]),
+            "fingerprint": r["fingerprint"],
+            "base_steps": json.loads(r["base_steps_json"]),
+            "current_steps": json.loads(r["current_steps_json"]),
+            "current_snapshot": json.loads(r["current_snapshot_json"]),
+            "history": json.loads(r["history_json"]),
+        }
+
+
+def update_agent_session(
+    session_id: str,
+    current_steps: list[dict],
+    current_snapshot: list[dict],
+    history: list[dict],
+) -> None:
+    with conn() as c:
+        c.execute(
+            "UPDATE agent_sessions SET current_steps_json=?,"
+            " current_snapshot_json=?, history_json=? WHERE id=?",
+            (
+                json.dumps(current_steps, ensure_ascii=False),
+                json.dumps(current_snapshot, ensure_ascii=False),
+                json.dumps(history, ensure_ascii=False),
+                session_id,
+            ),
+        )
